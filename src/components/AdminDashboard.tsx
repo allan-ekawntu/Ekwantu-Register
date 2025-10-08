@@ -20,30 +20,70 @@ const AdminDashboard: React.FC = () => {
     const navigate = useNavigate();
 
     useEffect(() => {
-        const storedVisitors = JSON.parse(localStorage.getItem('visitors') || '[]');
-        setVisitors(storedVisitors.sort((a: Visitor, b: Visitor) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+        const fetchVisitors = async () => {
+            try {
+                // 1. Data is fetched from the PostgreSQL database via the API.
+                const response = await fetch('http://localhost:3001/api/visitors');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch');
+                }
+                const data: Visitor[] = await response.json();
+                // The id from postgres is a number, but the Visitor type might expect a string.
+                // Let's ensure it's a string for consistency with previous localStorage implementation.
+                const formattedData = data.map(v => ({ ...v, id: String(v.id) }));
+                // 2. The component's 'visitors' state is updated with the fetched data.
+                setVisitors(formattedData);
+            } catch (error) {
+                console.error("Error fetching visitors:", error);
+            }
+        };
+
+        fetchVisitors();
     }, []);
 
-    const updateVisitors = (updatedVisitors: Visitor[]) => {
-        setVisitors(updatedVisitors);
-        localStorage.setItem('visitors', JSON.stringify(updatedVisitors));
-    };
-
-    const handleSignOut = (visitorId: string) => {
-        const updated = visitors.map(v => v.id === visitorId ? { ...v, timeOut: new Date().toLocaleTimeString() } : v);
-        updateVisitors(updated);
-    };
-
-    const handleDelete = (visitorId: string) => {
-        if (window.confirm('Are you sure you want to delete this entry?')) {
-            const updated = visitors.filter(v => v.id !== visitorId);
-            updateVisitors(updated);
+    const handleSignOut = async (visitorId: string) => {
+        const timeOut = new Date().toLocaleTimeString();
+        try {
+            const response = await fetch(`http://localhost:3001/api/visitors/${visitorId}/signout`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ timeOut }),
+            });
+            if (!response.ok) throw new Error('Sign out failed');
+            const updatedVisitor = await response.json();
+            setVisitors(visitors.map(v => v.id === visitorId ? { ...updatedVisitor, id: String(updatedVisitor.id) } : v));
+        } catch (error) {
+            console.error("Error signing out:", error);
         }
     };
 
-    const handleSaveEdit = (updatedVisitor: Visitor) => {
-        const updated = visitors.map(v => v.id === updatedVisitor.id ? updatedVisitor : v);
-        updateVisitors(updated);
+    const handleDelete = async (visitorId: string) => {
+        if (window.confirm('Are you sure you want to delete this entry?')) {
+            try {
+                const response = await fetch(`http://localhost:3001/api/visitors/${visitorId}`, {
+                    method: 'DELETE',
+                });
+                if (!response.ok) throw new Error('Delete failed');
+                setVisitors(visitors.filter(v => v.id !== visitorId));
+            } catch (error) {
+                console.error("Error deleting visitor:", error);
+            }
+        }
+    };
+
+    const handleSaveEdit = async (updatedVisitor: Visitor) => {
+        try {
+            const response = await fetch(`http://localhost:3001/api/visitors/${updatedVisitor.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedVisitor),
+            });
+            if (!response.ok) throw new Error('Update failed');
+            const savedVisitor = await response.json();
+            setVisitors(visitors.map(v => v.id === updatedVisitor.id ? { ...savedVisitor, id: String(savedVisitor.id) } : v));
+        } catch (error) {
+            console.error("Error updating visitor:", error);
+        }
     };
 
     const handleLogout = () => {
@@ -66,7 +106,11 @@ const AdminDashboard: React.FC = () => {
 
     const filteredVisitors = useMemo(() => {
         const now = new Date();
+        // This logic uses 'visitors' state directly.
         return visitors.filter(v => {
+            // Assuming all visitors in the log should have a timeIn
+            if (!v.timeIn) return false;
+
             const visitorDate = new Date(v.date);
             const nameMatch = `${v.name} ${v.surname}`.toLowerCase().includes(searchTerm.toLowerCase());
             const companyMatch = v.company.toLowerCase().includes(searchTerm.toLowerCase());
@@ -85,9 +129,10 @@ const AdminDashboard: React.FC = () => {
         });
     }, [visitors, searchTerm, statusFilter, dateRangeFilter]);
 
+    // 3. This memoized value processes 'filteredVisitors' to create data for the Bar chart.
     const chartData = useMemo(() => {
         const dailyCounts = filteredVisitors.reduce((acc, visitor) => {
-            const date = visitor.date;
+            const date = format(new Date(visitor.date), 'yyyy-MM-dd'); // Normalize date format for grouping
             acc[date] = (acc[date] || 0) + 1;
             return acc;
         }, {} as Record<string, number>);
@@ -95,6 +140,7 @@ const AdminDashboard: React.FC = () => {
         return { labels: sortedDates, datasets: [{ label: 'Visitors per Day', data: sortedDates.map(date => dailyCounts[date]), backgroundColor: 'rgba(0, 123, 255, 0.6)', borderColor: 'rgba(0, 123, 255, 1)', borderWidth: 1 }] };
     }, [filteredVisitors]);
 
+    // 4. This memoized value also processes 'filteredVisitors' for the Line chart.
     const peakTimesData = useMemo(() => {
         const hourlyCounts = Array(24).fill(0);
         filteredVisitors.forEach(visitor => {
@@ -175,6 +221,7 @@ const AdminDashboard: React.FC = () => {
                             <th>Host</th>
                             <th>Time In</th>
                             <th>Time Out</th>
+                            <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -188,20 +235,25 @@ const AdminDashboard: React.FC = () => {
                                     <td>{visitor.name} {visitor.surname}</td>
                                     <td>{visitor.company || 'N/A'}</td>
                                     <td>{visitor.host}</td>
-                                    <td>{visitor.date} at {visitor.timeIn}</td>
-                                    <td>{visitor.timeOut || 'Checked In'}</td>
+                                    <td>{visitor.timeIn ? `${format(new Date(visitor.date), 'yyyy-MM-dd')} at ${visitor.timeIn}`: 'Not Signed In'}</td>
+                                    <td>{visitor.timeOut || (visitor.timeIn ? 'Checked In' : 'N/A')}</td>
+                                    <td>{visitor.timeOut ? 'Checked Out' : 'Checked In'}</td>
                                     <td className="visitor-actions">
                                         <button onClick={() => setEditingVisitor(visitor)} className="edit-button">Edit</button>
-                                        <button onClick={() => handleSignOut(visitor.id)} className="sign-out-button">
-                                            {visitor.timeOut ? 'Update Sign Out' : 'Sign Out'}
-                                        </button>
+                                        {visitor.timeOut ? (
+                                            <span>{visitor.timeOut}</span>
+                                        ) : (
+                                            <button onClick={() => handleSignOut(visitor.id)} className="sign-out-button" disabled={!visitor.timeIn}>
+                                                Sign Out
+                                            </button>
+                                        )}
                                         <button onClick={() => handleDelete(visitor.id)} className="delete-button">Delete</button>
                                     </td>
                                 </tr>
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={7} className="no-visitors-message">No visitors found matching your criteria.</td>
+                                <td colSpan={8} className="no-visitors-message">No visitors found matching your criteria.</td>
                             </tr>
                         )}
                     </tbody>

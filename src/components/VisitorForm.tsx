@@ -81,19 +81,27 @@ const VisitorForm: React.FC = () => {
         setIsSubmitting(true);
         setMessage('Submitting...');
 
-        // In a real app, you would send this data to your backend.
-        // For this example, we save it to localStorage.
-        const newVisitor: Visitor = {
-            ...formData,
-            id: Date.now().toString(),
-        };
+        try {
+            // TODO: Replace with your actual backend server URL
+            const response = await fetch('http://localhost:3001/api/visitors', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData),
+            });
 
-        const existingVisitors = JSON.parse(localStorage.getItem('visitors') || '[]');
-        localStorage.setItem('visitors', JSON.stringify([...existingVisitors, newVisitor]));
+            if (!response.ok) {
+                const contentType = response.headers.get("content-type");
+                if (contentType && contentType.indexOf("application/json") !== -1) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.message || 'Failed to submit form.');
+                } else {
+                    // The response is not JSON, use status text instead.
+                    throw new Error(`Server error: ${response.status} ${response.statusText}`);
+                }
+            }
 
-        // Simulate a successful submission
-        setTimeout(() => {
-            // The success message is now part of the success-view JSX
             setSubmissionSuccess(true);
             // Reset form
             setFormData({
@@ -108,8 +116,16 @@ const VisitorForm: React.FC = () => {
                 timeIn: new Date().toLocaleTimeString(),
                 agreementSigned: false,
             });
+        } catch (error) {
+            if (error instanceof Error) {
+                setMessage(error.message);
+            } else {
+                setMessage('An unknown error occurred. Please try again.');
+            }
+            console.error('Submission error:', error);
+        } finally {
             setIsSubmitting(false);
-        }, 1000);
+        }
     };
 
     const handleSignInClick = () => {
@@ -134,10 +150,10 @@ const VisitorForm: React.FC = () => {
                 </div>
             ) : (
                 <>
-                    <div className="logo-container">
-                        <img src={logo} alt="Guestbook Logo" />
-                    </div>
                     <div className="visitor-form-container">
+                        <div className="logo-container">
+                            <img src={logo} alt="Guestbook Logo" />
+                        </div>
                         {submissionSuccess ? (
                             <div className="success-view">
                                 <h2>Thank You!</h2>
