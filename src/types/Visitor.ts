@@ -1,4 +1,5 @@
 export interface Visitor {
+    expectedTimeIn: any;
     id: string;
     name: string;
     surname: string;

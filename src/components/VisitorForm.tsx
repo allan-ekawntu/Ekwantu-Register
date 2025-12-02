@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Visitor } from '../types/Visitor';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 // import { sendNotification } from '../services/notificationService';
 import 'react-phone-number-input/style.css';
 import PhoneInput from 'react-phone-number-input';
@@ -10,6 +10,7 @@ import TermsModal from './TermsModal';
 import CameraModal from './CameraModal';
 
 const VisitorForm: React.FC = () => {
+    const navigate = useNavigate();
     const [showForm, setShowForm] = useState(false);
     const [submissionSuccess, setSubmissionSuccess] = useState(false);
     const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
@@ -23,7 +24,7 @@ const VisitorForm: React.FC = () => {
         reasonForVisit: '',
         host: '',
         date: new Date().toLocaleDateString(),
-        timeIn: new Date().toLocaleTimeString(),
+        expectedTimeIn: new Date().toLocaleTimeString(),
         agreementSigned: false,
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -113,7 +114,7 @@ const VisitorForm: React.FC = () => {
                 reasonForVisit: '',
                 host: '',
                 date: new Date().toLocaleDateString(),
-                timeIn: new Date().toLocaleTimeString(),
+                expectedTimeIn: new Date().toLocaleTimeString(),
                 agreementSigned: false,
             });
         } catch (error) {
@@ -143,6 +144,7 @@ const VisitorForm: React.FC = () => {
                         <h1>Welcome</h1>
                         <p>Please sign in to continue.</p>
                         <button onClick={handleSignInClick} className="landing-button">Sign In</button>
+                        <button onClick={() => navigate('/signout')} className="landing-button secondary">Sign Out</button>
                     </div>
                     <footer className="app-footer">
                         <Link to="/login">Admin Dashboard</Link>

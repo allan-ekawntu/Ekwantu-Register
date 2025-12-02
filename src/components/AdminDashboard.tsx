@@ -7,6 +7,7 @@ import { format, subDays, isWithinInterval } from 'date-fns';
 import './AdminDashboard.css';
 import PhotoViewerModal from './PhotoViewerModal';
 import EditVisitorModal from './EditVisitorModal';
+import AddVisitorModal from './AddVisitorModal';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, PointElement, LineElement);
 
@@ -17,12 +18,13 @@ const AdminDashboard: React.FC = () => {
     const [dateRangeFilter, setDateRangeFilter] = useState('all');
     const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
     const [editingVisitor, setEditingVisitor] = useState<Visitor | null>(null);
+    const [isAddingVisitor, setIsAddingVisitor] = useState(false);
     const navigate = useNavigate();
+    const [autoSignOutPerformed, setAutoSignOutPerformed] = useState(false);
 
     useEffect(() => {
         const fetchVisitors = async () => {
             try {
-                // 1. Data is fetched from the PostgreSQL database via the API.
                 const response = await fetch('http://localhost:3001/api/visitors');
                 if (!response.ok) {
                     throw new Error('Failed to fetch');
@@ -31,7 +33,6 @@ const AdminDashboard: React.FC = () => {
                 // The id from postgres is a number, but the Visitor type might expect a string.
                 // Let's ensure it's a string for consistency with previous localStorage implementation.
                 const formattedData = data.map(v => ({ ...v, id: String(v.id) }));
-                // 2. The component's 'visitors' state is updated with the fetched data.
                 setVisitors(formattedData);
             } catch (error) {
                 console.error("Error fetching visitors:", error);
@@ -41,8 +42,58 @@ const AdminDashboard: React.FC = () => {
         fetchVisitors();
     }, []);
 
+    useEffect(() => {
+        const autoSignOut = async () => {
+            const now = new Date();
+            const isAutoSignOutTime = now.getHours() === 15 && now.getMinutes() === 45;
+
+            if (isAutoSignOutTime && !autoSignOutPerformed) {
+                console.log("Performing automatic sign-out...");
+                setAutoSignOutPerformed(true); // Mark as performed for today
+
+                const visitorsToSignOut = visitors.filter(v => !v.timeOut);
+                if (visitorsToSignOut.length > 0) {
+                    const timeOut = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+                    
+                    const signoutPromises = visitorsToSignOut.map(visitor => 
+                        fetch(`http://localhost:3001/api/visitors/${visitor.id}/signout`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ timeOut }),
+                        }).then(res => res.json())
+                    );
+
+                    try {
+                        const results = await Promise.all(signoutPromises);
+                        // Create a map of updated visitors for efficient update
+                        const updatedVisitorsMap = new Map(results.map(v => [String(v.id), {...v, id: String(v.id)}]));
+                        
+                        setVisitors(currentVisitors => currentVisitors.map(v => updatedVisitorsMap.get(v.id) || v));
+                        alert(`${visitorsToSignOut.length} visitors have been automatically signed out.`);
+                    } catch (error) {
+                        console.error("Error during automatic sign-out:", error);
+                    }
+                }
+            } else if (now.getHours() === 0 && now.getMinutes() === 0) {
+                // Reset for the next day
+                setAutoSignOutPerformed(false);
+            }
+        };
+
+        const intervalId = setInterval(autoSignOut, 60000); // Check every minute
+
+        return () => clearInterval(intervalId); // Cleanup on component unmount
+    }, [visitors, autoSignOutPerformed]);
+
     const handleSignOut = async (visitorId: string) => {
-        const timeOut = new Date().toLocaleTimeString();
+        const visitor = visitors.find(v => v.id === visitorId);
+        if (visitor && visitor.timeOut) {
+            if (!window.confirm('This visitor is already signed out. Do you want to update their sign-out time to now?')) {
+                return;
+            }
+        }
+
+        const timeOut = new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
         try {
             const response = await fetch(`http://localhost:3001/api/visitors/${visitorId}/signout`, {
                 method: 'PUT',
@@ -70,7 +121,7 @@ const AdminDashboard: React.FC = () => {
             }
         }
     };
-
+//jj
     const handleSaveEdit = async (updatedVisitor: Visitor) => {
         try {
             const response = await fetch(`http://localhost:3001/api/visitors/${updatedVisitor.id}`, {
@@ -83,6 +134,22 @@ const AdminDashboard: React.FC = () => {
             setVisitors(visitors.map(v => v.id === updatedVisitor.id ? { ...savedVisitor, id: String(savedVisitor.id) } : v));
         } catch (error) {
             console.error("Error updating visitor:", error);
+        }
+    };
+
+    const handleAddNewVisitor = async (newVisitorData: Omit<Visitor, 'id' | 'photo' | 'timeIn' | 'timeOut'> & { expectedTimeIn?: string }) => {
+        try {
+            const response = await fetch(`http://localhost:3001/api/visitors`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newVisitorData),
+            });
+            if (!response.ok) throw new Error('Add visitor failed');
+            const savedVisitor = await response.json();
+            setVisitors(prevVisitors => [...prevVisitors, { ...savedVisitor, id: String(savedVisitor.id) }]);
+            setIsAddingVisitor(false); // Close modal on success
+        } catch (error) {
+            console.error("Error adding new visitor:", error);
         }
     };
 
@@ -106,11 +173,7 @@ const AdminDashboard: React.FC = () => {
 
     const filteredVisitors = useMemo(() => {
         const now = new Date();
-        // This logic uses 'visitors' state directly.
         return visitors.filter(v => {
-            // Assuming all visitors in the log should have a timeIn
-            if (!v.timeIn) return false;
-
             const visitorDate = new Date(v.date);
             const nameMatch = `${v.name} ${v.surname}`.toLowerCase().includes(searchTerm.toLowerCase());
             const companyMatch = v.company.toLowerCase().includes(searchTerm.toLowerCase());
@@ -129,7 +192,6 @@ const AdminDashboard: React.FC = () => {
         });
     }, [visitors, searchTerm, statusFilter, dateRangeFilter]);
 
-    // 3. This memoized value processes 'filteredVisitors' to create data for the Bar chart.
     const chartData = useMemo(() => {
         const dailyCounts = filteredVisitors.reduce((acc, visitor) => {
             const date = format(new Date(visitor.date), 'yyyy-MM-dd'); // Normalize date format for grouping
@@ -140,7 +202,6 @@ const AdminDashboard: React.FC = () => {
         return { labels: sortedDates, datasets: [{ label: 'Visitors per Day', data: sortedDates.map(date => dailyCounts[date]), backgroundColor: 'rgba(0, 123, 255, 0.6)', borderColor: 'rgba(0, 123, 255, 1)', borderWidth: 1 }] };
     }, [filteredVisitors]);
 
-    // 4. This memoized value also processes 'filteredVisitors' for the Line chart.
     const peakTimesData = useMemo(() => {
         const hourlyCounts = Array(24).fill(0);
         filteredVisitors.forEach(visitor => {
@@ -195,20 +256,21 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             <div className="filters-container">
-                <h3>Visitor Log</h3>
+                <h3 style={{ color: 'black' }}>Visitor Log</h3>
                 <input type="text" placeholder="Search by name or company..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="search-input" />
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ color: 'black' }}>
                     <option value="all">All Statuses</option>
                     <option value="checked-in">Checked In</option>
                     <option value="checked-out">Checked Out</option>
                 </select>
-                <select value={dateRangeFilter} onChange={e => setDateRangeFilter(e.target.value)}>
+                <select value={dateRangeFilter} onChange={e => setDateRangeFilter(e.target.value)} style={{ color: 'black' }}>
                     <option value="all">All Time</option>
                     <option value="today">Today</option>
                     <option value="7days">Last 7 Days</option>
                     <option value="30days">Last 30 Days</option>
                 </select>
                 <button onClick={exportToCSV} className="export-button">Export CSV</button>
+                <button onClick={() => setIsAddingVisitor(true)} className="add-visitor-button">Add Visitor</button>
             </div>
 
             <div className="visitor-table-container">
@@ -219,9 +281,9 @@ const AdminDashboard: React.FC = () => {
                             <th>Name</th>
                             <th>Company</th>
                             <th>Host</th>
+                            <th>Date</th>
                             <th>Time In</th>
                             <th>Time Out</th>
-                            <th>Status</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
@@ -230,30 +292,30 @@ const AdminDashboard: React.FC = () => {
                             filteredVisitors.map((visitor) => (
                                 <tr key={visitor.id}>
                                     <td>
-                                        <img src={visitor.photo} alt="Visitor" className="visitor-photo" onClick={() => setSelectedPhoto(visitor.photo)} />
+                                        {visitor.photo ? (
+                                            <img src={visitor.photo} alt="Visitor" className="visitor-photo" onClick={() => setSelectedPhoto(visitor.photo)} />
+                                        ) : (
+                                            <span className="pre-registered-text">Pre-registered</span>
+                                        )}
                                     </td>
                                     <td>{visitor.name} {visitor.surname}</td>
                                     <td>{visitor.company || 'N/A'}</td>
                                     <td>{visitor.host}</td>
-                                    <td>{visitor.timeIn ? `${format(new Date(visitor.date), 'yyyy-MM-dd')} at ${visitor.timeIn}`: 'Not Signed In'}</td>
-                                    <td>{visitor.timeOut || (visitor.timeIn ? 'Checked In' : 'N/A')}</td>
-                                    <td>{visitor.timeOut ? 'Checked Out' : 'Checked In'}</td>
+                                    <td>{format(new Date(visitor.date), 'yyyy-MM-dd')}</td>
+                                    <td>{visitor.timeIn || (visitor.expectedTimeIn ? `${visitor.expectedTimeIn} (Expected)` : 'N/A')}</td>
+                                    <td>{visitor.timeOut || 'N/A'}</td>
                                     <td className="visitor-actions">
                                         <button onClick={() => setEditingVisitor(visitor)} className="edit-button">Edit</button>
-                                        {visitor.timeOut ? (
-                                            <span>{visitor.timeOut}</span>
-                                        ) : (
-                                            <button onClick={() => handleSignOut(visitor.id)} className="sign-out-button" disabled={!visitor.timeIn}>
-                                                Sign Out
-                                            </button>
-                                        )}
+                                        <button onClick={() => handleSignOut(visitor.id)} className="sign-out-button">
+                                            {visitor.timeOut ? 'Update Sign Out' : 'Sign Out'}
+                                        </button>
                                         <button onClick={() => handleDelete(visitor.id)} className="delete-button">Delete</button>
                                     </td>
                                 </tr>
                             ))
                         ) : (
                             <tr>
-                                <td colSpan={8} className="no-visitors-message">No visitors found matching your criteria.</td>
+                                <td colSpan={7} className="no-visitors-message">No visitors found matching your criteria.</td>
                             </tr>
                         )}
                     </tbody>
@@ -267,6 +329,7 @@ const AdminDashboard: React.FC = () => {
 
             {selectedPhoto && <PhotoViewerModal imageSrc={selectedPhoto} onClose={() => setSelectedPhoto(null)} />}
             {editingVisitor && <EditVisitorModal visitor={editingVisitor} onClose={() => setEditingVisitor(null)} onSave={handleSaveEdit} />}
+            {isAddingVisitor && <AddVisitorModal onClose={() => setIsAddingVisitor(false)} onSave={handleAddNewVisitor} />}
             <footer className="dashboard-footer">
                 <button onClick={handleLogout} className="logout-button">Log Out</button>
             </footer>
@@ -275,3 +338,4 @@ const AdminDashboard: React.FC = () => {
 };
 
 export default AdminDashboard;
+

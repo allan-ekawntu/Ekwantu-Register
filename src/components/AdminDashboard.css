@@ -139,6 +139,29 @@
     box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
 }
 
+.export-button, .add-visitor-button {
+    padding: 10px 15px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background-color 0.2s;
+}
+
+.export-button:hover, .add-visitor-button:hover {
+    background-color: #0056b3;
+}
+
+.add-visitor-button {
+    background-color: #28a745; /* Green color for add */
+}
+
+.add-visitor-button:hover {
+    background-color: #218838;
+}
+
 .export-button, .edit-button, .sign-out-button, .delete-button {
     padding: 0.5rem 1rem;
     color: white;
@@ -161,19 +184,6 @@
 .delete-button { background-color: #c0392b; }
 .delete-button:hover { background-color: #a93226; }
 
-/* Remove visitor card list styles */
-.visitor-list {
-    display: none;
-}
-
-.no-visitors-message {
-    text-align: center;
-    padding: 3rem;
-    color: #7f8c8d;
-    font-size: 1.2rem;
-}
-
-/* New Table Styles */
 .visitor-table-container {
     background: #fff;
     border-radius: 12px;
@@ -329,4 +339,45 @@
     .actions-cell {
         justify-content: flex-end;
     }
+
+    /* Styles for VisitorForm navigation buttons */
+    .visitor-form-container {
+        padding: 2rem;
+        max-width: 800px;
+        margin: 2rem auto;
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    }
+
+    .form-navigation {
+        display: flex;
+        justify-content: flex-end;
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+
+    .nav-button {
+        padding: 0.6rem 1.2rem;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+        transition: background-color 0.3s;
+        background-color: #3498db;
+        color: white;
+    }
+
+    .nav-button:hover {
+        background-color: #2980b9;
+    }
+
+    .admin-button {
+        background-color: #95a5a6;
+    }
+
+    .admin-button:hover {
+        background-color: #7f8c8d;
+    }
 }
+
